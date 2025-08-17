@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+HEAD
 FROM python:3.9
 
 WORKDIR /app
@@ -19,4 +19,4 @@ RUN pip install fastapi uvicorn
 # Render requires listening on $PORT
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
 
->>>>>>> dabb2350b34adb255eac2944eba0b925cd441175
+dabb2350b34adb255eac2944eba0b925cd441175
