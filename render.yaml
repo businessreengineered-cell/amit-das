@@ -4,10 +4,4 @@ services:
     env: docker
     plan: free
     autoDeploy: true
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: JARVIS_ADMIN_SECRET
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
+
