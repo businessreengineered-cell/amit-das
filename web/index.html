@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Jarvis — Voice Assistant</title>
+
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/styles.css">
+
+  <script>
+    // Register service worker for installable PWA/offline shell
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(console.warn);
+      });
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Jarvis</h1>
+      <span class="pill" id="status">online</span>
+    </header>
+
+    <main id="chat"></main>
+
+    <footer>
+      <div class="input-row">
+        <button id="micBtn" title="Hold to talk">🎤</button>
+        <input id="textInput" type="text" inputmode="text" autocomplete="off" placeholder="Type a message…" />
+        <button id="sendBtn">➤</button>
+      </div>
+      <div class="subrow">
+        <label class="small">
+          <input type="checkbox" id="speakToggle" checked>
+          Speak replies
+        </label>
+        <select id="voiceSelect"></select>
+      </div>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
