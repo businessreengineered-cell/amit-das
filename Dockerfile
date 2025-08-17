@@ -7,4 +7,5 @@ COPY . .
 RUN pip install fastapi uvicorn
 
 # Render requires listening on $PORT
-CMD ["sh", "-c", "uvicorn app.server:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+
