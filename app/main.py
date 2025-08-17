@@ -1,87 +1,35 @@
-# app/main.py
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+import openai
 import os
 
-# === OpenAI client ===
-# Requires env var: OPENAI_API_KEY
-try:
-    from openai import OpenAI
-    _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
-except Exception as e:  # library not installed yet, or no key
-    _client = None
+app = FastAPI()
 
-app = FastAPI(title="Jarvis Voice Assistant")
+# Mount static folder (for index.html)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# Serve /static and index.html
-STATIC_DIR = "app/static"
-INDEX_FILE = f"{STATIC_DIR}/index.html"
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Root → serve index.html
+@app.get("/", response_class=HTMLResponse)
+async def serve_ui():
+    with open("app/static/index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
 
-
-@app.get("/")
-async def index():
-    # Serves the voice UI
-    return FileResponse(INDEX_FILE)
-
-
-class ChatRequest(BaseModel):
-    client_id: str
-    message: str
-    history: Optional[List[Dict[str, Any]]] = None  # optional: client can send its own memory
-
-
-# very small, in-memory cache (ephemeral; resets on restart)
-MEMORY: Dict[str, List[Dict[str, str]]] = {}
-
-
+# Chat endpoint
 @app.post("/chat")
-async def chat(req: ChatRequest):
-    """
-    Accepts text, keeps short-term memory, returns assistant reply.
-    """
-    if _client is None or not os.getenv("OPENAI_API_KEY"):
-        return JSONResponse(
-            {"error": "Server missing OPENAI_API_KEY or openai package."},
-            status_code=500,
-        )
-
-    # Retrieve/merge memory
-    hist = MEMORY.get(req.client_id, [])
-    if req.history:
-        hist = req.history  # allow client to drive memory if it wants
-
-    # Clamp memory size (keep it lean for a free Render service)
-    hist = hist[-18:]  # keep last 18; we’ll add 2 more messages below
-
-    system_prompt = os.getenv(
-        "SYSTEM_PROMPT",
-        "You are Jarvis, a proactive, mobile-first voice assistant. "
-        "Keep answers brief and helpful. If asked to perform actions you can’t do, "
-        "explain simple next steps. Use plain language.",
-    )
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-    messages = [{"role": "system", "content": system_prompt}] + hist + [
-        {"role": "user", "content": req.message}
-    ]
+async def chat(request: Request):
+    data = await request.json()
+    user_message = data.get("message", "")
 
     try:
-        completion = _client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.6,
+        client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": "You are Jarvis, a helpful futuristic AI assistant."},
+                      {"role": "user", "content": user_message}]
         )
-        reply = completion.choices[0].message.content
+        reply = response.choices[0].message["content"]
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        reply = f"Error: {str(e)}"
 
-    # Update memory and return
-    hist.append({"role": "user", "content": req.message})
-    hist.append({"role": "assistant", "content": reply})
-    MEMORY[req.client_id] = hist[-20:]  # keep last 20 turns
-
-    return {"reply": reply, "memory_len": len(MEMORY[req.client_id])}
+    return JSONResponse({"reply": reply})
