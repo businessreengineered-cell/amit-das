@@ -1,6 +1,14 @@
 services:
   - type: web
+<<<<<<< HEAD
     name: jarvis-assistant
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
+=======
+    name: amit-das
+    env: docker
+    plan: free
+    autoDeploy: true
+
+>>>>>>> dabb2350b34adb255eac2944eba0b925cd441175
