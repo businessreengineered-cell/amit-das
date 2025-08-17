@@ -1,9 +1,0 @@
-[build]
-builder = "DOCKERFILE"
-
-[deploy]
-restartPolicyType = "ALWAYS"
-
-[service]
-name = "jarvis"
-internalPorts = [8000]
