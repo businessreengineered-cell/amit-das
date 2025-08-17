@@ -1,91 +1,87 @@
 # app/main.py
-from pathlib import Path
-from typing import List, Literal, Optional
-import os
-
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+import os
 
-# ---- OpenAI (server-side fallback for text or speech-to-text if you ever add it)
-from openai import OpenAI
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+# === OpenAI client ===
+# Requires env var: OPENAI_API_KEY
+try:
+    from openai import OpenAI
+    _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+except Exception as e:  # library not installed yet, or no key
+    _client = None
 
 app = FastAPI(title="Jarvis Voice Assistant")
 
-# CORS so you can open from your phone freely
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Serve /static and index.html
+STATIC_DIR = "app/static"
+INDEX_FILE = f"{STATIC_DIR}/index.html"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# ---------- API models
-Role = Literal["system", "user", "assistant"]
 
-class ChatMessage(BaseModel):
-    role: Role
-    content: str
+@app.get("/")
+async def index():
+    # Serves the voice UI
+    return FileResponse(INDEX_FILE)
+
 
 class ChatRequest(BaseModel):
-    messages: List[ChatMessage]
-    model: Optional[str] = "gpt-4o-mini"        # small/fast by default
-    temperature: Optional[float] = 0.5
+    client_id: str
+    message: str
+    history: Optional[List[Dict[str, Any]]] = None  # optional: client can send its own memory
 
-class ChatResponse(BaseModel):
-    role: Role = "assistant"
-    content: str
 
-# ---------- Health & root
-@app.get("/")
-def root():
-    return {"message": "Hello, Jarvis is running 🚀"}
+# very small, in-memory cache (ephemeral; resets on restart)
+MEMORY: Dict[str, List[Dict[str, str]]] = {}
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
 
-# ---------- Core chat endpoint (server-side LLM)
-@app.post("/api/chat", response_model=ChatResponse)
-def api_chat(req: ChatRequest):
+@app.post("/chat")
+async def chat(req: ChatRequest):
     """
-    Mobile client posts the running conversation (messages).
-    We return the assistant reply text.
+    Accepts text, keeps short-term memory, returns assistant reply.
     """
-    if not client:
-        # No server key? Return a friendly message so UI can still talk using client-side speech.
-        return ChatResponse(content="Server is up, but no OPENAI_API_KEY is set. Add it to Render to enable AI replies.")
+    if _client is None or not os.getenv("OPENAI_API_KEY"):
+        return JSONResponse(
+            {"error": "Server missing OPENAI_API_KEY or openai package."},
+            status_code=500,
+        )
 
-    # Ensure a system prompt so it feels like a “next-gen” assistant
-    system_msg = {
-        "role": "system",
-        "content": (
-            "You are Jarvis, a friendly, proactive mobile voice assistant. "
-            "Be concise, helpful, and anticipate the user's next step. "
-            "If asked to remember facts, reflect them back explicitly."
-        ),
-    }
-    messages = [system_msg] + [m.model_dump() for m in req.messages]
+    # Retrieve/merge memory
+    hist = MEMORY.get(req.client_id, [])
+    if req.history:
+        hist = req.history  # allow client to drive memory if it wants
 
-    chat = client.chat.completions.create(
-        model=req.model or "gpt-4o-mini",
-        messages=messages,
-        temperature=req.temperature or 0.5,
+    # Clamp memory size (keep it lean for a free Render service)
+    hist = hist[-18:]  # keep last 18; we’ll add 2 more messages below
+
+    system_prompt = os.getenv(
+        "SYSTEM_PROMPT",
+        "You are Jarvis, a proactive, mobile-first voice assistant. "
+        "Keep answers brief and helpful. If asked to perform actions you can’t do, "
+        "explain simple next steps. Use plain language.",
     )
-    text = chat.choices[0].message.content.strip()
-    return ChatResponse(content=text)
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-# ---------- Static/PWA (serve the web app)
-ROOT = Path(__file__).resolve().parent.parent  # repo root
-WEB_DIR = ROOT / "web"
+    messages = [{"role": "system", "content": system_prompt}] + hist + [
+        {"role": "user", "content": req.message}
+    ]
 
-# Make sure the web folder exists in the image (it will after you add the files below)
-if WEB_DIR.exists():
-    app.mount("/",
-              StaticFiles(directory=str(WEB_DIR), html=True),
-              name="web")
+    try:
+        completion = _client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.6,
+        )
+        reply = completion.choices[0].message.content
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    # Update memory and return
+    hist.append({"role": "user", "content": req.message})
+    hist.append({"role": "assistant", "content": reply})
+    MEMORY[req.client_id] = hist[-20:]  # keep last 20 turns
+
+    return {"reply": reply, "memory_len": len(MEMORY[req.client_id])}
