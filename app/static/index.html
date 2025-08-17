@@ -1,191 +1,106 @@
-<!-- app/static/index.html -->
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Jarvis — Voice Assistant</title>
+  <meta charset="UTF-8">
+  <title>Jarvis Voice Assistant</title>
   <style>
-    :root { color-scheme: light dark; }
-    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    .wrap { max-width: 760px; margin: 0 auto; padding: 18px; }
-    header { display:flex; align-items:center; gap:12px; }
-    header h1 { font-size: 1.25rem; margin: 0; }
-    .card { background: var(--card, rgba(0,0,0,.04)); padding:16px; border-radius: 14px; margin-top: 14px; }
-    .row { display:flex; gap:10px; }
-    .row > * { flex:1; }
-    button { padding:12px 16px; border-radius:12px; border:0; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.15); }
-    .primary { background:#4f46e5; color:#fff; }
-    .mic { background:#10b981; color:#fff; }
-    .danger { background:#ef4444; color:#fff; }
-    .log { height: 45vh; overflow:auto; padding:12px; font-size:.95rem; white-space: pre-wrap; background: rgba(0,0,0,.05); border-radius:12px; }
-    .bubble { padding:10px 12px; border-radius:12px; margin:8px 0; max-width: 90%; }
-    .user { background:#2563eb; color:#fff; margin-left:auto; }
-    .bot { background:#111827; color:#fff; }
-    .hint { opacity:.7; font-size:.9rem; }
-    .toolbar { display:flex; gap:8px; margin-top:10px; }
-    input[type=text] { padding:12px; border-radius:12px; border:1px solid rgba(0,0,0,.2); width:100%; }
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 50px;
+      background: #0d1117;
+      color: #f0f6fc;
+    }
+    h1 {
+      color: #58a6ff;
+    }
+    #messages {
+      margin: 20px auto;
+      width: 90%;
+      max-width: 600px;
+      height: 300px;
+      overflow-y: auto;
+      padding: 10px;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background: #161b22;
+      text-align: left;
+    }
+    .msg-user {
+      color: #58a6ff;
+    }
+    .msg-bot {
+      color: #c9d1d9;
+    }
+    button {
+      margin-top: 20px;
+      padding: 15px 30px;
+      font-size: 18px;
+      border-radius: 10px;
+      border: none;
+      background: #238636;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <h1>Jarvis — Voice Assistant</h1>
-      <span class="hint" id="status">ready</span>
-    </header>
-
-    <div class="card">
-      <div class="log" id="chat"></div>
-
-      <div class="toolbar">
-        <input id="text" type="text" placeholder="Type a message or use the mic…" />
-        <button id="send" class="primary">Send</button>
-        <button id="mic" class="mic">🎤 Hold to talk</button>
-        <button id="clear" class="danger">Clear</button>
-      </div>
-      <div class="hint" style="margin-top:8px">
-        Tip: Press and hold 🎤, speak, release to send. The assistant will reply out loud.
-      </div>
-    </div>
-  </div>
+  <h1>🎙️ Jarvis Voice Assistant</h1>
+  <div id="messages"></div>
+  <button id="micBtn">🎤 Start Talking</button>
 
   <script>
-    // --- Lightweight client memory & identity ---
-    const chatEl = document.getElementById('chat');
-    const textEl = document.getElementById('text');
-    const sendBtn = document.getElementById('send');
-    const micBtn = document.getElementById('mic');
-    const clearBtn = document.getElementById('clear');
-    const statusEl = document.getElementById('status');
+    const micBtn = document.getElementById("micBtn");
+    const messages = document.getElementById("messages");
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
 
-    const clientId = (() => {
-      const key = 'jarvis_client_id';
-      let id = localStorage.getItem(key);
-      if (!id) { id = crypto.randomUUID(); localStorage.setItem(key, id); }
-      return id;
-    })();
-
-    // store local history (so the UI shows it even if server restarts)
-    const HISTORY_KEY = 'jarvis_history';
-    function loadHistory() { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; } }
-    function saveHistory(h) { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)); }
-    let history = loadHistory();
-
-    function render() {
-      chatEl.innerHTML = '';
-      history.forEach(m => {
-        const b = document.createElement('div');
-        b.className = `bubble ${m.role === 'user' ? 'user' : 'bot'}`;
-        b.textContent = m.content;
-        chatEl.appendChild(b);
-      });
-      chatEl.scrollTop = chatEl.scrollHeight;
-    }
-    render();
-
-    function addUser(text) {
-      history.push({ role: 'user', content: text });
-      saveHistory(history); render();
-    }
-    function addBot(text) {
-      history.push({ role: 'assistant', content: text });
-      saveHistory(history); render();
+    function addMessage(text, sender) {
+      const div = document.createElement("div");
+      div.className = sender === "user" ? "msg-user" : "msg-bot";
+      div.textContent = (sender === "user" ? "You: " : "Jarvis: ") + text;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
     }
 
-    // --- TTS (speak out loud) ---
-    function speak(text) {
-      try {
-        const u = new SpeechSynthesisUtterance(text);
-        u.rate = 1.05; u.pitch = 1.0;
-        speechSynthesis.cancel(); // interrupt previous
-        speechSynthesis.speak(u);
-      } catch {}
-    }
-
-    // --- STT (press-and-hold mic) ---
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let rec = null, holding = false;
-
-    if (SR) {
-      rec = new SR();
-      rec.lang = navigator.language || 'en-US';
-      rec.interimResults = false;
-      rec.maxAlternatives = 1;
-
-      rec.onresult = (e) => {
-        const text = e.results[0][0].transcript;
-        textEl.value = text;
-        sendMessage(text);
-      };
-      rec.onstart = () => status('listening…');
-      rec.onend = () => status('ready');
-      rec.onerror = () => status('mic error');
-    } else {
+    micBtn.onclick = () => {
+      recognition.start();
       micBtn.disabled = true;
-      micBtn.textContent = '🎤 (unsupported)';
-    }
+      micBtn.textContent = "Listening...";
+    };
 
-    micBtn.addEventListener('mousedown', startRec);
-    micBtn.addEventListener('touchstart', startRec);
-    micBtn.addEventListener('mouseup', stopRec);
-    micBtn.addEventListener('mouseleave', stopRec);
-    micBtn.addEventListener('touchend', stopRec);
+    recognition.onresult = async (event) => {
+      const userText = event.results[0][0].transcript;
+      addMessage(userText, "user");
 
-    function startRec(e) {
-      e.preventDefault();
-      if (!rec || holding) return;
-      holding = true;
-      rec.start();
-    }
-    function stopRec(e) {
-      if (!rec || !holding) return;
-      holding = false;
-      try { rec.stop(); } catch {}
-    }
+      const response = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userText })
+      });
 
-    // --- Send text to backend ---
-    async function sendMessage(text) {
-      text = (text ?? textEl.value).trim();
-      if (!text) return;
-      textEl.value = '';
-      addUser(text);
-      status('thinking…');
+      const data = await response.json();
+      addMessage(data.reply, "bot");
 
-      try {
-        const res = await fetch('/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            client_id: clientId,
-            message: text,
-            // give server a short memory (only the last 12 messages)
-            history: history.slice(-12)
-          })
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        addBot(data.reply);
-        speak(data.reply);
-        status('ready');
-      } catch (err) {
-        addBot('⚠️ ' + err.message);
-        status('error');
-      }
-    }
+      // Speak reply
+      const utterance = new SpeechSynthesisUtterance(data.reply);
+      speechSynthesis.speak(utterance);
 
-    sendBtn.addEventListener('click', () => sendMessage());
-    textEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') sendMessage();
-    });
+      micBtn.disabled = false;
+      micBtn.textContent = "🎤 Start Talking";
+    };
 
-    clearBtn.addEventListener('click', () => {
-      history = [];
-      saveHistory(history); render();
-      status('cleared');
-      speechSynthesis.cancel();
-    });
-
-    function status(t) { statusEl.textContent = t; }
+    recognition.onerror = (event) => {
+      console.error(event.error);
+      micBtn.disabled = false;
+      micBtn.textContent = "🎤 Start Talking";
+    };
   </script>
 </body>
 </html>
