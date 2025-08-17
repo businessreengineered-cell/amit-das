@@ -1,4 +1,4 @@
-# Use official Python image
+# Use official Python 3.9 slim image
 FROM python:3.9-slim
 
 # Set environment variables
@@ -20,8 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project files
 COPY . .
 
-# Expose port (Render expects traffic on 10000)
+# Expose Render port
 EXPOSE 10000
 
-# Start the app (Flask/FastAPI compatible)
-CMD ["sh", "-c", "if [ -f app.py ]; then python app.py; else uvicorn app:app --host 0.0.0.0 --port 10000; fi"]
+# Start FastAPI with Uvicorn
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"]
